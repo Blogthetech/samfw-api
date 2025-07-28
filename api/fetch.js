@@ -1,58 +1,46 @@
-const chromium = require('chrome-aws-lambda');
-const puppeteer = require('puppeteer-core');
+const puppeteer = require('puppeteer');
 
 module.exports = async (req, res) => {
-  const model = req.query.model?.toUpperCase();
-  if (!model) return res.status(400).json({ error: 'Model is required' });
+  const { model } = req.query;
 
-  const url = `https://samfw.com/firmware/${model}`;
+  if (!model) {
+    return res.status(400).json({ error: 'Missing model parameter' });
+  }
+
+  let browser;
 
   try {
-    const browser = await puppeteer.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath,
-      headless: chromium.headless,
-      defaultViewport: chromium.defaultViewport,
+    browser = await puppeteer.launch({
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      headless: true,
     });
 
     const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const url = `https://samfw.com/firmware/${model}`;
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
 
-    // 🔄 Extra wait to let JS load firmware table
-    await page.waitForTimeout(5000);
-
-    // 🧪 Optional: Take screenshot for debugging
-    const screenshot = await page.screenshot({ encoding: 'base64' });
-
-    // ✅ Try to extract firmware data
     const data = await page.evaluate(() => {
-      const getValue = (label) => {
-        const row = [...document.querySelectorAll('tr')]
-          .find(tr => tr.innerText.includes(label));
-        return row?.querySelectorAll('td')[1]?.innerText.trim() || null;
-      };
+      const version = document.querySelector('.table td a')?.textContent?.trim() || 'Unknown';
+      const size = document.querySelector('.table td:nth-child(4)')?.textContent?.trim() || 'Unknown';
+      const date = document.querySelector('.table td:nth-child(3)')?.textContent?.trim() || 'Unknown';
 
-      return {
-        version: getValue('Latest version'),
-        size: getValue('Size'),
-        date: getValue('Release date'),
-      };
+      return { version, size, date };
     });
 
-    await browser.close();
-
-    if (!data.version) {
-      return res.status(500).json({
-        error: 'Firmware data not found in HTML',
-        debug: { screenshot }
-      });
+    if (!data.version || data.version === 'Unknown') {
+      throw new Error('Could not extract firmware details');
     }
 
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.status(200).json(data);
+    res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
+    return res.status(200).json(data);
 
   } catch (err) {
-    console.error('❌ Scraper crashed:', err.message);
-    res.status(500).json({ error: 'Failed to fetch firmware data', message: err.message });
+    console.error(err);
+    return res.status(500).json({
+      error: 'Failed to fetch firmware data',
+      message: err.message,
+    });
+  } finally {
+    if (browser) await browser.close();
   }
 };
