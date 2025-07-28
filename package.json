@@ -3,11 +3,14 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "build": "echo \"skip build\"",
+    "postinstall": "node node_modules/puppeteer/install.js",
     "vercel-build": "echo \"Vercel will handle\""
   },
-"dependencies": {
-  "chrome-aws-lambda": "^1.20.1",
-  "puppeteer-core": "^1.20.0"
-}
+  "dependencies": {
+    "chrome-aws-lambda": "^1.20.4",
+    "puppeteer-core": "1.20.0"
+  },
+  "devDependencies": {
+    "puppeteer": "1.20.0"
+  }
 }
